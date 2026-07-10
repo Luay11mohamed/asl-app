@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Models checkpoints (اختياري حسب الحجم)
+*.pt
+*.pth
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+
+# Docker
+*.tar
+
+# Node
+node_modules/

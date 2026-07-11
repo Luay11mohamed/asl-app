@@ -1,7 +1,7 @@
 import time
 import json
 from pathlib import Path
-
+from starlette.websockets import WebSocketState
 import numpy as np
 import torch
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -63,7 +63,7 @@ def health():
 
 
 def top5_payload(probs: np.ndarray, classes: list) -> dict:
-    if probs is None or probs.sum() == 0:
+    if probs is None or len(probs) == 0 or probs.sum() == 0:
         return {"classes": [], "scores": []}
     idx = np.argsort(probs)[::-1][:5]
     return {"classes": [classes[i] for i in idx], "scores": [float(probs[i]) for i in idx]}
@@ -86,12 +86,35 @@ def parse_binary_frame(data: bytes):
 async def ws_endpoint(websocket: WebSocket):
     await websocket.accept()
     session = Session()
+
+    # Persist per-connection display buffers. These live for the whole
+    # connection, independent of whether the last inbound message was a
+    # binary frame or a text control message.
     dynamic_probs_display = np.zeros(len(STATE["dynamic_classes"] or []), dtype=np.float32)
     static_probs_display = np.zeros(len(STATE["static_classes"] or []), dtype=np.float32)
+
+    def current_display():
+        """Pick the top5 source arrays based on the session's *current*
+        mode, computed fresh every time we're about to send — never stale
+        from whatever branch last ran."""
+        if session.mode == "STATIC":
+            return static_probs_display, (STATE["static_classes"] or [])
+        return dynamic_probs_display, (STATE["dynamic_classes"] or [])
+
+    async def send_prediction():
+        probs_display, display_classes = current_display()
+        await websocket.send_json({
+            "type": "prediction",
+            "state": session.snapshot(),
+            "top5": top5_payload(probs_display, display_classes),
+        })
 
     try:
         while True:
             packet = await websocket.receive()
+
+            if packet["type"] == "websocket.disconnect":
+                break
 
             # ── binary message: a landmark frame ──────────────────────
             if packet.get("bytes") is not None:
@@ -164,17 +187,7 @@ async def ws_endpoint(websocket: WebSocket):
                     session.current_dynamic_conf = conf
 
                 session.sync_current()
-
-                if session.mode == "STATIC":
-                    probs_display, display_classes = static_probs_display, STATE["static_classes"] or []
-                else:
-                    probs_display, display_classes = dynamic_probs_display, STATE["dynamic_classes"] or []
-
-                await websocket.send_json({
-                    "type": "prediction",
-                    "state": session.snapshot(),
-                    "top5": top5_payload(probs_display, display_classes),
-                })
+                await send_prediction()
                 continue
 
             # ── text message: a control action ────────────────────────
@@ -212,15 +225,21 @@ async def ws_endpoint(websocket: WebSocket):
                     result = {"ok": False, "reason": f"unknown action '{action}'"}
 
                 session.sync_current()
-                await websocket.send_json({
-                    "type": "control_result",
-                    "action": action,
-                    "result": result,
-                    "state": session.snapshot(),
-                })
-
+                try:
+                    await send_prediction()
+                except (WebSocketDisconnect, RuntimeError):
+                    break
     except WebSocketDisconnect:
         pass
+    except Exception as e:
+        print(f"[ws_endpoint] unexpected error: {e}")
+        try:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.close(code=1011)
+        except Exception:
+            pass
+    finally:
+        print("[ws_endpoint] connection closed")
 
 
 # Serve the frontend (mounted last so it doesn't shadow /api or /ws routes).

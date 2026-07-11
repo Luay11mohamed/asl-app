@@ -6,10 +6,7 @@ import {
 
 // ── configuration ──────────────────────────────────────────────────
 const BACKEND_URL = "https://asl-app-production-6738.up.railway.app";
-
-const WS_URL = BACKEND_URL
-  .replace("https://", "wss://")
-  .replace("http://", "ws://") + "/ws";
+const WS_URL = "wss://asl-app-production-6738.up.railway.app/ws";
 const HAND_MODEL_URL = "./models/hand_landmarker.task";
 const POSE_MODEL_URL = "./models/pose_landmarker_lite.task";
 const POSE_IDXS = [0, 11, 12, 13, 14, 15, 16, 23, 24];
@@ -214,13 +211,14 @@ function connectWS() {
   ws.onerror = () => ws.close();
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
+    // The backend only ever emits {"type": "prediction", state, top5} —
+    // both for frame-triggered updates and for control-action results
+    // (toggle_mode, add, generate, etc). There is no separate
+    // "control_result" message, so auto-speak-on-generate is detected
+    // by watching for state.sentence changing inside updateHUD, not by
+    // branching on message type here.
     if (msg.type === "prediction") {
       updateHUD(msg.state, msg.top5);
-    } else if (msg.type === "control_result") {
-      updateHUD(msg.state, null);
-      if (msg.action === "generate" && msg.result && msg.result.ok && autoSpeak) {
-        speak(msg.result.sentence);
-      }
     }
   };
 }
@@ -278,8 +276,13 @@ function updateHUD(state, top5) {
     : '<span class="empty">Press "Generate sentence" once you have a few words.</span>';
   sentenceMeta.textContent = state.sentence_info || "";
 
+  // Fires whenever the generated sentence actually changes, regardless of
+  // whether this update was triggered by a landmark frame or by a control
+  // action (e.g. "generate") — this is what makes auto-speak work, since
+  // the backend doesn't send a distinct message type for control results.
   if (state.sentence && state.sentence !== lastSentence) {
     lastSentence = state.sentence;
+    if (autoSpeak) speak(lastSentence);
   }
 
   btnLLM.textContent = `LLM: ${state.llm_enabled ? "on" : "off"}`;
@@ -370,7 +373,7 @@ function drawSkeleton(handResult) {
 
 function processFrame() {
   const t0 = performance.now();
-  const ts = performance.now();
+  const ts = t0;
 
   if (video.readyState >= 2) {
     const handResult = handLandmarker.detectForVideo(video, ts);

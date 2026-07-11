@@ -5,7 +5,11 @@ import {
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
 // ── configuration ──────────────────────────────────────────────────
-const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+const BACKEND_URL = "https://asl-app-production-6738.up.railway.app";
+
+const WS_URL = BACKEND_URL
+  .replace("https://", "wss://")
+  .replace("http://", "ws://") + "/ws";
 const HAND_MODEL_URL = "./models/hand_landmarker.task";
 const POSE_MODEL_URL = "./models/pose_landmarker_lite.task";
 const POSE_IDXS = [0, 11, 12, 13, 14, 15, 16, 23, 24];
@@ -338,12 +342,12 @@ function drawSkeleton(handResult) {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   if (!showLandmarks || !handResult || !handResult.landmarks) return;
   const CONNECTIONS = [
-    [0,1],[1,2],[2,3],[3,4],
-    [0,5],[5,6],[6,7],[7,8],
-    [0,9],[9,10],[10,11],[11,12],
-    [0,13],[13,14],[14,15],[15,16],
-    [0,17],[17,18],[18,19],[19,20],
-    [5,9],[9,13],[13,17],
+    [0, 1], [1, 2], [2, 3], [3, 4],
+    [0, 5], [5, 6], [6, 7], [7, 8],
+    [0, 9], [9, 10], [10, 11], [11, 12],
+    [0, 13], [13, 14], [14, 15], [15, 16],
+    [0, 17], [17, 18], [18, 19], [19, 20],
+    [5, 9], [9, 13], [13, 17],
   ];
   ctx.strokeStyle = "rgba(255,255,255,0.9)";
   ctx.fillStyle = "rgba(255,255,255,0.9)";
